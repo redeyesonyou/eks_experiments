@@ -14,7 +14,7 @@ spec:
     spec:
       containers:
         - name: my-app
-          image: ${ECR_URL}:latest
+          image: ${ECR_URL}:${IMAGE_TAG}
           ports:
             - containerPort: 80
           env:

@@ -1,6 +1,9 @@
 #!/bin/bash
 set -e
 
+GIT_COMMIT_SHORT=$(git rev-parse --short HEAD)
+echo "ℹ️ Using Git commit hash for tagging: $GIT_COMMIT_SHORT"
+
 ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
 source ./config.sh
 ECR_URL="$ACCOUNT_ID.dkr.ecr.$REGION.amazonaws.com/$REPO_NAME"
@@ -69,7 +72,7 @@ aws ecr get-login-password --region $REGION | docker login --username AWS --pass
 
 echo "🔨 Building and pushing Docker image..."
 docker buildx create --use || true
-docker buildx build --platform linux/amd64 -t $ECR_URL:latest ./app --push
+docker buildx build --platform linux/amd64 -t $ECR_URL:$GIT_COMMIT_SHORT ./app --push
 
 if ! kubectl get secret my-app-secret >/dev/null 2>&1; then
   kubectl create secret generic my-app-secret --from-literal=apiKey=my-secret-key
@@ -77,11 +80,12 @@ else
   echo "✅ Kubernetes secret already exists. Skipping."
 fi
 
-echo "📦 Deploying app to Kubernetes..."
+echo "📦 Deploying app to Kubernetes with image tag: $GIT_COMMIT_SHORT..."
 # Ensure variables are exported for envsubst
 export ECR_URL
 export REGION
 export ACCOUNT_ID
+export IMAGE_TAG=$GIT_COMMIT_SHORT # Set and export IMAGE_TAG
 
 envsubst < app_deployment.yaml | kubectl apply -f -
 
