@@ -11,8 +11,12 @@ POLICY_NAME="AWSLoadBalancerControllerIAMPolicy"
 SERVICE_ACCOUNT_NAME="aws-load-balancer-controller"
 SERVICE_ACCOUNT_NAMESPACE="kube-system"
 
-echo "📦 Creating EKS cluster..."
-eksctl create cluster -f cluster.yaml
+if ! eksctl get cluster --region $REGION --name $CLUSTER_NAME >/dev/null 2>&1; then
+  echo "📦 Creating EKS cluster..."
+  eksctl create cluster -f cluster.yaml --approve
+else
+  echo "✅ EKS cluster $CLUSTER_NAME already exists. Skipping creation."
+fi
 
 echo "🔗 Creating OIDC provider (if not already exists)..."
 eksctl utils associate-iam-oidc-provider \
@@ -48,6 +52,8 @@ VPC_ID=$(aws eks describe-cluster \
 
 helm upgrade -i aws-load-balancer-controller eks/aws-load-balancer-controller \
   -n kube-system \
+  --create-namespace \
+  --wait \
   --set clusterName=$CLUSTER_NAME \
   --set region=$REGION \
   --set vpcId=$VPC_ID \
@@ -55,16 +61,21 @@ helm upgrade -i aws-load-balancer-controller eks/aws-load-balancer-controller \
   --set serviceAccount.name=$SERVICE_ACCOUNT_NAME
 
 echo "🐳 Creating ECR repository (if not exists)..."
-aws ecr describe-repositories --repository-names $REPO_NAME || \
-  aws ecr create-repository --repository-name $REPO_NAME
+aws ecr describe-repositories --repository-names $REPO_NAME --output text || \
+  aws ecr create-repository --repository-name $REPO_NAME --output text
 
 echo "🔐 Logging into ECR..."
-aws ecr get-login-password | docker login --username AWS --password-stdin "$ACCOUNT_ID.dkr.ecr.$REGION.amazonaws.com"
+aws ecr get-login-password --region $REGION | docker login --username AWS --password-stdin "$ACCOUNT_ID.dkr.ecr.$REGION.amazonaws.com"
 
 echo "🔨 Building and pushing Docker image..."
-docker build -t $REPO_NAME ./app
-docker tag $REPO_NAME:latest $ECR_URL:latest
-docker push $ECR_URL:latest
+docker buildx create --use || true
+docker buildx build --platform linux/amd64 -t $ECR_URL:latest ./app --push
+
+if ! kubectl get secret my-app-secret >/dev/null 2>&1; then
+  kubectl create secret generic my-app-secret --from-literal=apiKey=my-secret-key
+else
+  echo "✅ Kubernetes secret already exists. Skipping."
+fi
 
 echo "📦 Deploying app to Kubernetes..."
 cat <<EOF | kubectl apply -f -
@@ -87,6 +98,14 @@ spec:
           image: $ECR_URL:latest
           ports:
             - containerPort: 80
+          env:
+            - name: ENVIRONMENT
+              value: "production"
+            - name: API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: my-app-secret
+                  key: apiKey
 ---
 apiVersion: v1
 kind: Service
@@ -107,19 +126,21 @@ metadata:
   annotations:
     alb.ingress.kubernetes.io/scheme: internet-facing
     alb.ingress.kubernetes.io/target-type: ip
-    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP":80}]'
+    # Update the ACM certificate ARN and domain name as needed
+    alb.ingress.kubernetes.io/certificate-arn: arn:aws:acm:$REGION:$ACCOUNT_ID:certificate/your-cert-id
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTPS": 443}]'
 spec:
   ingressClassName: alb
   rules:
     - http:
         paths:
-          - path: /
-            pathType: Prefix
-            backend:
-              service:
-                name: my-app-service
-                port:
-                  number: 80
+        - path: /
+          pathType: Prefix
+          backend:
+            service:
+              name: my-app-service
+              port:
+                number: 80
 EOF
 
 echo "⏳ Waiting for ALB to be created..."
