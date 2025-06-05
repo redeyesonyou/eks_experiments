@@ -1,0 +1,38 @@
+apiVersion: eksctl.io/v1alpha5
+kind: ClusterConfig
+
+metadata:
+  name: test-eks-auto
+  region: eu-west-2
+  version: "1.33"
+
+vpc:
+  nat:
+    gateway: Single
+  manageSharedNodeSecurityGroupRules: true
+
+managedNodeGroups:
+  - name: ng-default
+    instanceType: t3.small
+    desiredCapacity: 2
+    minSize: 1
+    maxSize: 2
+    volumeSize: 20
+    ssh:
+      allow: true
+      publicKeyName: main  # 👈 Replace with your real EC2 key pair
+    iam:
+      withAddonPolicies:
+        autoScaler: true
+        ebs: true
+        albIngress: true
+        cloudWatch: true
+
+iam:
+  withOIDC: true
+
+addons:
+  - name: aws-ebs-csi-driver
+    version: latest
+    attachPolicyARNs:
+      - arn:aws:iam::aws:policy/service-role/AmazonEBSCSIDriverPolicy
