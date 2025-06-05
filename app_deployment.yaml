@@ -14,7 +14,7 @@ spec:
     spec:
       containers:
         - name: my-app
-          image: ${ECR_URL}:${IMAGE_TAG}
+          image: ${ECR_URL}:${IMAGE_TAG} # Ensure this line is correct
           ports:
             - containerPort: 80
           env:
