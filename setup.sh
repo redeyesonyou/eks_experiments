@@ -38,7 +38,7 @@ ARG_DELETE_ECR_REPO=false
 usage() {
   echo "Usage: $0 [options]"
   echo "Options:"
-  echo "  -a, --action <create|delete>    Action to perform (default: create)"
+  echo "  -a, --action <create|delete|delete-all> Action to perform (default: create)"
   echo "  -c, --cluster-name <name>       EKS cluster name (overrides config.sh)"
   echo "  -r, --region <region>           AWS region (overrides config.sh)"
   echo "  -t, --image-tag <tag>           Docker image tag (overrides git commit hash)"
@@ -106,8 +106,16 @@ done
 
 # Apply parsed arguments, overriding config.sh values if arguments were provided
 if [[ ! -z "$TEMP_ACTION" ]]; then
-  ARG_ACTION="$TEMP_ACTION"
+  if [[ "$TEMP_ACTION" == "delete-all" ]]; then
+    ARG_ACTION="delete"
+    ARG_DELETE_ECR_REPO=true # Explicitly set ECR repo deletion for delete-all
+    echo "ℹ️ '--action delete-all' received. Will delete all resources including ECR repository."
+  else
+    ARG_ACTION="$TEMP_ACTION"
+  fi
 fi
+
+# Apply other TEMP variables to ARG variables
 if [[ ! -z "$TEMP_CLUSTER_NAME" ]]; then
   ARG_CLUSTER_NAME="$TEMP_CLUSTER_NAME"
 fi
@@ -120,13 +128,19 @@ fi
 if [[ ! -z "$TEMP_ECR_REPO_NAME" ]]; then
   ARG_ECR_REPO_NAME="$TEMP_ECR_REPO_NAME"
 fi
+
+# This handles the --delete-ecr-repo flag if 'delete-all' wasn't used
+# If 'delete-all' was used, ARG_DELETE_ECR_REPO is already true.
 if [[ "$TEMP_DELETE_ECR_REPO" = true ]]; then
   ARG_DELETE_ECR_REPO=true
+  if [[ "$TEMP_ACTION" != "delete-all" ]]; then # Avoid double message
+      echo "ℹ️ '--delete-ecr-repo' flag received. ECR repository will be targeted for deletion if action is 'delete'."
+  fi
 fi
 
-# Validate action
+# Validate action (now only 'create' or 'delete' are valid for ARG_ACTION)
 if [[ "$ARG_ACTION" != "create" && "$ARG_ACTION" != "delete" ]]; then
-  echo "Error: Invalid action '$ARG_ACTION'. Must be 'create' or 'delete'."
+  echo "Error: Invalid action '$TEMP_ACTION' provided for --action. Must be 'create', 'delete', or 'delete-all'."
   usage
 fi
 
