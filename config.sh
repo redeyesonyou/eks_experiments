@@ -1,0 +1,6 @@
+CLUSTER_NAME="test-eks-auto"
+REGION="eu-west-2"
+REPO_NAME="my-app"
+POLICY_NAME="AWSLoadBalancerControllerIAMPolicy"
+SERVICE_ACCOUNT_NAME="aws-load-balancer-controller"
+SERVICE_ACCOUNT_NAMESPACE="kube-system"
